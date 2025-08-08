@@ -355,8 +355,7 @@ contract TREXGateway is ITREXGateway, AgentRole {
                 );
             }
         }
-        string memory _salt  = string(abi.encodePacked(Strings.toHexString(_tokenDetails.owner), _tokenDetails.name));
-        ITREXFactory(_factory).deployTREXSuite(_salt, _tokenDetails, _claimDetails);
+        ITREXFactory(_factory).deployTREXSuite(_tokenDetails, _claimDetails);
         emit GatewaySuiteDeploymentProcessed(msg.sender, _tokenDetails.owner, feeApplied);
     }
 

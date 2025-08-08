@@ -6,7 +6,7 @@ type ContractJSON = {
   bytecode: string;
   deployedBytecode: string;
   linkReferences: any;
-};
+}
 
 export namespace contracts {
   // Token
@@ -48,6 +48,10 @@ export namespace contracts {
   export const TREXFactory: ContractJSON;
   // gateway
   export const TREXGateway: ContractJSON;
+  // DVD
+  export const DVDTransferManager: ContractJSON;
+  // DVA
+  export const DVATransferManager: ContractJSON;
   // compliance
   export const MCStorage: ContractJSON;
   export const ModularCompliance: ContractJSON;
@@ -55,7 +59,18 @@ export namespace contracts {
   export const AbstractModule: ContractJSON;
   export const AbstractModuleUpgradeable: ContractJSON;
   export const ModuleProxy: ContractJSON;
-  export const TestModule: ContractJSON;
+  export const ConditionalTransferModule: ContractJSON;
+  export const CountryAllowModule: ContractJSON;
+  export const CountryRestrictModule: ContractJSON;
+  export const MaxBalanceModule: ContractJSON;
+  export const ExchangeMonthlyLimitsModule: ContractJSON;
+  export const TimeExchangeLimitsModule: ContractJSON;
+  export const TimeTransfersLimitsModule: ContractJSON;
+  export const SupplyLimitModule: ContractJSON;
+  export const TransferFeesModule: ContractJSON;
+  export const TransferRestrictModule: ContractJSON;
+
+  export const TokenListingRestrictionsModule: ContractJSON;
 }
 
 export namespace interfaces {
@@ -72,4 +87,6 @@ export namespace interfaces {
   export const ITREXGateway: ContractJSON;
   export const IModularCompliance: ContractJSON;
   export const IModule: ContractJSON;
+
+  export const IDVATransferManager: ContractJSON;
 }

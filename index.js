@@ -6,6 +6,14 @@ const TokenStorage = require('./artifacts/contracts/token/TokenStorage.sol/Token
 const AgentRole = require('./artifacts/contracts/roles/AgentRole.sol/AgentRole.json');
 const AgentRoleUpgradeable = require('./artifacts/contracts/roles/AgentRoleUpgradeable.sol/AgentRoleUpgradeable.json');
 const Roles = require('./artifacts/contracts/roles/Roles.sol/Roles.json');
+// Roles/permissioning/agent
+const AgentManager = require('./artifacts/contracts/roles/permissioning/agent/AgentManager.sol/AgentManager.json');
+const AgentRoles = require('./artifacts/contracts/roles/permissioning/agent/AgentRoles.sol/AgentRoles.json');
+const AgentRolesUpgradeable = require('./artifacts/contracts/roles/permissioning/agent/AgentRolesUpgradeable.sol/AgentRolesUpgradeable.json');
+// Roles/owner
+const OwnerManager = require('./artifacts/contracts/roles/permissioning/owner/OwnerManager.sol/OwnerManager.json');
+const OwnerRoles = require('./artifacts/contracts/roles/permissioning/owner/OwnerRoles.sol/OwnerRoles.json');
+const OwnerRolesUpgradeable = require('./artifacts/contracts/roles/permissioning/owner/OwnerRolesUpgradeable.sol/OwnerRolesUpgradeable.json');
 // registry
 const IClaimTopicsRegistry = require('./artifacts/contracts/registry/interface/IClaimTopicsRegistry.sol/IClaimTopicsRegistry.json');
 const ClaimTopicsRegistry = require('./artifacts/contracts/registry/implementation/ClaimTopicsRegistry.sol/ClaimTopicsRegistry.json');
@@ -40,6 +48,11 @@ const TREXFactory = require('./artifacts/contracts/factory/TREXFactory.sol/TREXF
 // gateway
 const ITREXGateway = require('./artifacts/contracts/factory/ITREXGateway.sol/ITREXGateway.json');
 const TREXGateway = require('./artifacts/contracts/factory/TREXGateway.sol/TREXGateway.json');
+// DVD
+const DVDTransferManager = require('./artifacts/contracts/DVD/DVDTransferManager.sol/DVDTransferManager.json');
+// DVA
+const DVATransferManager = require('./artifacts/contracts/DVA/DVATransferManager.sol/DVATransferManager.json');
+const IDVATransferManager = require('./artifacts/contracts/DVA/IDVATransferManager.sol/IDVATransferManager.json');
 // compliance
 const IModularCompliance = require('./artifacts/contracts/compliance/modular/IModularCompliance.sol/IModularCompliance.json');
 const MCStorage = require('./artifacts/contracts/compliance/modular/MCStorage.sol/MCStorage.json');
@@ -49,7 +62,17 @@ const IModule = require('./artifacts/contracts/compliance/modular/modules/IModul
 const AbstractModule = require('./artifacts/contracts/compliance/modular/modules/AbstractModule.sol/AbstractModule.json');
 const AbstractModuleUpgradeable = require('./artifacts/contracts/compliance/modular/modules/AbstractModuleUpgradeable.sol/AbstractModuleUpgradeable.json');
 const ModuleProxy = require('./artifacts/contracts/compliance/modular/modules/ModuleProxy.sol/ModuleProxy.json');
-const TestModule = require('./artifacts/contracts/compliance/modular/modules/TestModule.sol/TestModule.json');
+const ConditionalTransferModule = require('./artifacts/contracts/compliance/modular/modules/ConditionalTransferModule.sol/ConditionalTransferModule.json');
+const CountryAllowModule = require('./artifacts/contracts/compliance/modular/modules/CountryAllowModule.sol/CountryAllowModule.json');
+const CountryRestrictModule = require('./artifacts/contracts/compliance/modular/modules/CountryRestrictModule.sol/CountryRestrictModule.json');
+const MaxBalanceModule = require('./artifacts/contracts/compliance/modular/modules/MaxBalanceModule.sol/MaxBalanceModule.json');
+const ExchangeMonthlyLimitsModule = require('./artifacts/contracts/compliance/modular/modules/ExchangeMonthlyLimitsModule.sol/ExchangeMonthlyLimitsModule.json');
+const TimeExchangeLimitsModule = require('./artifacts/contracts/compliance/modular/modules/TimeExchangeLimitsModule.sol/TimeExchangeLimitsModule.json');
+const TimeTransfersLimitsModule = require('./artifacts/contracts/compliance/modular/modules/TimeTransfersLimitsModule.sol/TimeTransfersLimitsModule.json');
+const SupplyLimitModule = require('./artifacts/contracts/compliance/modular/modules/SupplyLimitModule.sol/SupplyLimitModule.json');
+const TransferFeesModule = require('./artifacts/contracts/compliance/modular/modules/TransferFeesModule.sol/TransferFeesModule.json');
+const TransferRestrictModule = require('./artifacts/contracts/compliance/modular/modules/TransferRestrictModule.sol/TransferRestrictModule.json');
+const TokenListingRestrictionsModule = require('./artifacts/contracts/compliance/modular/modules/TokenListingRestrictionsModule.sol/TokenListingRestrictionsModule.json');
 
 module.exports = {
   contracts: {
@@ -60,6 +83,14 @@ module.exports = {
     AgentRole,
     AgentRoleUpgradeable,
     Roles,
+    // Roles/permissioning/agent
+    AgentManager,
+    AgentRoles,
+    AgentRolesUpgradeable,
+    // Roles/permissioning/owner
+    OwnerManager,
+    OwnerRoles,
+    OwnerRolesUpgradeable,
     // registry
     ClaimTopicsRegistry,
     IdentityRegistry,
@@ -84,6 +115,10 @@ module.exports = {
     TREXFactory,
     // gateway
     TREXGateway,
+    // DVD
+    DVDTransferManager,
+    // DVA
+    DVATransferManager,
     // compliance
     MCStorage,
     ModularCompliance,
@@ -91,7 +126,17 @@ module.exports = {
     AbstractModule,
     AbstractModuleUpgradeable,
     ModuleProxy,
-    TestModule,
+    ConditionalTransferModule,
+    CountryAllowModule,
+    CountryRestrictModule,
+    MaxBalanceModule,
+    ExchangeMonthlyLimitsModule,
+    TimeExchangeLimitsModule,
+    TimeTransfersLimitsModule,
+    SupplyLimitModule,
+    TransferFeesModule,
+    TransferRestrictModule,
+    TokenListingRestrictionsModule,
   },
   interfaces: {
     IToken,
@@ -107,5 +152,6 @@ module.exports = {
     ITREXGateway,
     IModularCompliance,
     IModule,
+    IDVATransferManager,
   },
 };

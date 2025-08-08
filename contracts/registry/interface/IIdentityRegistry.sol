@@ -66,8 +66,8 @@ import "./ITrustedIssuersRegistry.sol";
 import "./IClaimTopicsRegistry.sol";
 import "./IIdentityRegistryStorage.sol";
 
-import "@onchain-id/solidity/contracts/interface/IClaimIssuer.sol";
-import "@onchain-id/solidity/contracts/interface/IIdentity.sol";
+import "../../onchainid/interface/IClaimIssuer.sol";
+import "../../onchainid/interface/IIdentity.sol";
 
 interface IIdentityRegistry {
     /**

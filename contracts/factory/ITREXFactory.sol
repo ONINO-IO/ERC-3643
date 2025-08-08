@@ -62,7 +62,6 @@
 pragma solidity 0.8.17;
 
 interface ITREXFactory {
-
     /// Types
 
     struct TokenDetails {
@@ -113,8 +112,7 @@ interface ITREXFactory {
     event ImplementationAuthoritySet(address _implementationAuthority);
 
     /// event emitted by the factory when a full suite of T-REX contracts is deployed
-    event TREXSuiteDeployed(address indexed _token, address _ir, address _irs, address _tir, address _ctr, address
-    _mc, string indexed _salt);
+    event TREXSuiteDeployed(address indexed _token, address _ir, address _irs, address _tir, address _ctr, address _mc);
 
     /// functions
 
@@ -150,21 +148,17 @@ interface ITREXFactory {
      *  CTR : deploy CTR contract (proxy), set required claims, set owner
      *  TIR : deploy TIR contract (proxy), set trusted issuers, set owner
      *  Compliance: deploy modular compliance, bind with token, add modules, set modules parameters, set owner
-     *  All contracts are deployed using CREATE2 opcode, and therefore are deployed at a predetermined address
+     *  All contracts are deployed using the standard CREATE opcode in order to support pre-Constantinople EVMs
      *  The address can be the same on all EVM blockchains as long as the factory address is the same as well
      *  Only owner can call.
      *  emits `TREXSuiteDeployed` event
-     *  @param _salt the salt used to make the contracts deployments with CREATE2
      *  @param _tokenDetails The details of the token to deploy (see struct TokenDetails for more details)
      *  @param _claimDetails The details of the claims and claim issuers (see struct ClaimDetails for more details)
      *  cannot add more than 5 agents on IR and 5 agents on Token
      *  cannot add more than 5 claim topics required and more than 5 trusted issuers
      *  cannot add more than 30 compliance settings transactions
      */
-    function deployTREXSuite(
-        string memory _salt,
-        TokenDetails calldata _tokenDetails,
-        ClaimDetails calldata _claimDetails) external;
+    function deployTREXSuite(TokenDetails calldata _tokenDetails, ClaimDetails calldata _claimDetails) external;
 
     /**
      *  @dev function that can be used to recover the ownership of contracts owned by the factory
@@ -178,16 +172,10 @@ interface ITREXFactory {
     /**
      *  @dev getter for implementation authority address
      */
-    function getImplementationAuthority() external view returns(address);
+    function getImplementationAuthority() external view returns (address);
 
     /**
      *  @dev getter for identity factory address
      */
-    function getIdFactory() external view returns(address);
-
-    /**
-     *  @dev getter for token address corresponding to salt string
-     *  @param _salt The salt string that was used to deploy the token
-     */
-    function getToken(string calldata _salt) external view returns(address);
+    function getIdFactory() external view returns (address);
 }

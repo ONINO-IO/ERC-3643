@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
+// This contract is also licensed under the Creative Commons Attribution-NonCommercial 4.0 International License.
 //
 //                                             :+#####%%%%%%%%%%%%%%+
 //                                         .-*@@@%+.:+%@@@@@%%#***%@@%=
@@ -44,7 +45,7 @@
  *     T-REX is a suite of smart contracts implementing the ERC-3643 standard and
  *     developed by Tokeny to manage and transfer financial assets on EVM blockchains
  *
- *     Copyright (C) 2023, Tokeny sàrl.
+ *     Copyright (C) 2024, Tokeny sàrl.
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -58,21 +59,42 @@
  *
  *     You should have received a copy of the GNU General Public License
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ *     This specific smart contract is also licensed under the Creative Commons
+ *     Attribution-NonCommercial 4.0 International License (CC-BY-NC-4.0),
+ *     which prohibits commercial use. For commercial inquiries, please contact
+ *     Tokeny sàrl for licensing options.
  */
 
 pragma solidity 0.8.17;
 
 import "../IModularCompliance.sol";
 import "../../../token/IToken.sol";
+import "../../../roles/AgentRole.sol";
 import "./AbstractModuleUpgradeable.sol";
 
-contract TestModule is AbstractModuleUpgradeable {
+contract TransferFeesModule is AbstractModuleUpgradeable {
+    /// Struct of fees
+    struct Fee {
+        uint256 rate; // min = 0, max = 10000, 0.01% = 1, 1% = 100, 100% = 10000
+        address collector;
+    }
 
-    /// state variables
-    mapping(address => uint) private _complianceData;
-    mapping(address => bool) private _blockedTransfers;
+    /// Mapping for compliance fees
+    mapping(address => Fee) private _fees;
 
-    /// functions
+    /**
+    *  this event is emitted whenever a fee definition is updated for the given compliance address
+    *  the event is emitted by 'setFee'.
+    *  compliance is the compliance contract address
+    *  _rate is the rate of the fee (0.01% = 1, 1% = 100, 100% = 10000)
+    *  _collector is the collector wallet address
+    */
+    event FeeUpdated(address indexed compliance, uint256 _rate, address _collector);
+
+    error FeeRateIsOutOfRange(address compliance, uint256 rate);
+
+    error CollectorAddressIsNotVerified(address compliance, address collector);
 
     /**
      * @dev initializes the contract and sets the initial state.
@@ -82,75 +104,113 @@ contract TestModule is AbstractModuleUpgradeable {
         __AbstractModule_init();
     }
 
-    function doSomething(uint _value) external onlyComplianceCall {
-        _complianceData[msg.sender] = _value;
-    }
+    /**
+    *  @dev Sets the fee rate and collector of the given compliance
+    *  @param _rate is the rate of the fee (0.01% = 1, 1% = 100, 100% = 10000)
+    *  @param _collector is the collector wallet address
+    *  Only the owner of the Compliance smart contract can call this function
+    *  Collector wallet address must be verified
+    */
+    function setFee(uint256 _rate, address _collector) external onlyComplianceCall {
+        address tokenAddress = IModularCompliance(msg.sender).getTokenBound();
+        if (_rate > 10000) {
+            revert FeeRateIsOutOfRange(msg.sender, _rate);
+        }
 
-    function blockModule(bool _blocked) external onlyComplianceCall {
-        _blockedTransfers[msg.sender] = _blocked;
+        IIdentityRegistry identityRegistry = IToken(tokenAddress).identityRegistry();
+        if (!identityRegistry.isVerified(_collector)) {
+            revert CollectorAddressIsNotVerified(msg.sender, _collector);
+        }
+
+        _fees[msg.sender].rate = _rate;
+        _fees[msg.sender].collector = _collector;
+        emit FeeUpdated(msg.sender, _rate, _collector);
     }
 
     /**
-     *  @dev See {IModule-moduleTransferAction}.
-     *  no transfer action required in this module
-     */
-    // solhint-disable-next-line no-empty-blocks
-    function moduleTransferAction(address /*_from*/, address /*_to*/, uint256 /*_value*/) external override onlyComplianceCall {
-        // Intentionally empty - no transfer action required in this test module
+    *  @dev See {IModule-moduleTransferAction}.
+    */
+    function moduleTransferAction(address _from, address _to, uint256 _value) external override onlyComplianceCall {
+        address senderIdentity = _getIdentity(msg.sender, _from);
+        address receiverIdentity = _getIdentity(msg.sender, _to);
+
+        if (senderIdentity == receiverIdentity) {
+            return;
+        }
+
+        Fee memory fee = _fees[msg.sender];
+        if (fee.rate == 0 || _from == fee.collector || _to == fee.collector) {
+            return;
+        }
+
+        uint256 feeAmount = (_value * fee.rate) / 10000;
+        if (feeAmount == 0) {
+            return;
+        }
+
+        IToken token = IToken(IModularCompliance(msg.sender).getTokenBound());
+        bool sent = token.forcedTransfer(_to, fee.collector, feeAmount);
+        require(sent, "transfer fee collection failed");
     }
 
     /**
-     *  @dev See {IModule-moduleMintAction}.
-     *  no mint action required in this module
+    *  @dev See {IModule-moduleMintAction}.
      */
     // solhint-disable-next-line no-empty-blocks
-    function moduleMintAction(address /*_to*/, uint256 /*_value*/) external override onlyComplianceCall {
-        // Intentionally empty - no mint action required in this test module
-    }
+    function moduleMintAction(address _to, uint256 _value) external override onlyComplianceCall {}
 
     /**
      *  @dev See {IModule-moduleBurnAction}.
-     *  no burn action required in this module
      */
     // solhint-disable-next-line no-empty-blocks
-    function moduleBurnAction(address /*_from*/, uint256 /*_value*/) external override onlyComplianceCall {
-        // Intentionally empty - no burn action required in this test module
-    }
+    function moduleBurnAction(address _from, uint256 _value) external override onlyComplianceCall {}
 
     /**
      *  @dev See {IModule-moduleCheck}.
-     *  always returns true (just a test module)
      */
-    function moduleCheck(
-        address /*_from*/,
-        address /*_to*/,
-        uint256 /*_value*/,
-        address _compliance
-    ) external view override returns (bool) {
-        if(_blockedTransfers[_compliance]) {
-            return false;
-        }
+    // solhint-disable-next-line no-unused-vars
+    function moduleCheck(address _from, address _to, uint256 _value, address _compliance) external view override returns (bool) {
         return true;
     }
 
     /**
-      *  @dev See {IModule-canComplianceBind}.
+    *  @dev getter for `_fees` variable
+    *  @param _compliance the Compliance smart contract to be checked
+    *  returns the Fee
+    */
+    function getFee(address _compliance) external view returns (Fee memory) {
+       return _fees[_compliance];
+    }
+
+    /**
+     *  @dev See {IModule-canComplianceBind}.
      */
-    function canComplianceBind(address /*_compliance*/) external pure returns (bool) {
-        return true;
+    function canComplianceBind(address _compliance) external view returns (bool) {
+        address tokenAddress = IModularCompliance(_compliance).getTokenBound();
+        return AgentRole(tokenAddress).isAgent(address(this));
     }
 
     /**
       *  @dev See {IModule-isPlugAndPlay}.
      */
     function isPlugAndPlay() external pure returns (bool) {
-        return true;
+        return false;
     }
 
     /**
      *  @dev See {IModule-name}.
      */
     function name() public pure returns (string memory _name) {
-        return "TestModule";
+        return "TransferFeesModule";
+    }
+
+    /**
+    *  @dev Returns the ONCHAINID (Identity) of the _userAddress
+    *  @param _userAddress Address of the wallet
+    *  internal function, can be called only from the functions of the Compliance smart contract
+    */
+    function _getIdentity(address _compliance, address _userAddress) internal view returns (address) {
+        return address(IToken(IModularCompliance(_compliance).getTokenBound()).identityRegistry().identity
+        (_userAddress));
     }
 }

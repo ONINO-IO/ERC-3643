@@ -169,10 +169,44 @@ describe('ModularCompliance', () => {
             suite: { compliance },
           } = await loadFixture(deploySuiteWithModularCompliancesFixture);
 
-          const module = await ethers.deployContract('TestModule');
+          const module = await ethers.deployContract('CountryAllowModule');
           await compliance.addModule(module.address);
 
           await expect(compliance.addModule(module.address)).to.be.revertedWith('module already bound');
+        });
+      });
+
+      describe('when module is not plug & play', () => {
+        describe('when compliance is not suitable for binding to the module', () => {
+          it('should revert', async () => {
+            const {
+              accounts,
+              suite: { compliance, token },
+            } = await loadFixture(deploySuiteWithModularCompliancesFixture);
+            await compliance.connect(accounts.deployer).bindToken(token.address);
+
+            const module = await ethers.deployContract('MaxBalanceModule');
+            await expect(compliance.addModule(module.address)).to.be.revertedWith('compliance is not suitable for binding to the module');
+          });
+        });
+
+        describe('when compliance is suitable for binding to the module', () => {
+          it('should revert', async () => {
+            const {
+              accounts,
+              suite: { compliance, token },
+            } = await loadFixture(deploySuiteWithModularCompliancesFixture);
+
+            await compliance.connect(accounts.deployer).bindToken(token.address);
+            await token.connect(accounts.tokenAgent).burn(accounts.aliceWallet.address, 1000);
+            await token.connect(accounts.tokenAgent).burn(accounts.bobWallet.address, 500);
+
+            const module = await ethers.deployContract('MaxBalanceModule');
+            const tx = await compliance.addModule(module.address);
+
+            await expect(tx).to.emit(compliance, 'ModuleAdded').withArgs(module.address);
+            await expect(compliance.getModules()).to.eventually.deep.eq([module.address]);
+          });
         });
       });
 
@@ -182,7 +216,7 @@ describe('ModularCompliance', () => {
             suite: { compliance },
           } = await loadFixture(deploySuiteWithModularCompliancesFixture);
 
-          const module = await ethers.deployContract('TestModule');
+          const module = await ethers.deployContract('CountryAllowModule');
           const tx = await compliance.addModule(module.address);
 
           await expect(tx).to.emit(compliance, 'ModuleAdded').withArgs(module.address);
@@ -196,11 +230,11 @@ describe('ModularCompliance', () => {
             suite: { compliance },
           } = await loadFixture(deploySuiteWithModularCompliancesFixture);
 
-          const modules = await Promise.all(Array.from({ length: 25 }, () => ethers.deployContract('TestModule')));
+          const modules = await Promise.all(Array.from({ length: 25 }, () => ethers.deployContract('CountryAllowModule')));
 
           await Promise.all(modules.map((module) => compliance.addModule(module.address)));
 
-          const module = await ethers.deployContract('TestModule');
+          const module = await ethers.deployContract('CountryAllowModule');
 
           await expect(compliance.addModule(module.address)).to.be.revertedWith('cannot add more than 25 modules');
         });
@@ -239,7 +273,7 @@ describe('ModularCompliance', () => {
             suite: { compliance },
           } = await loadFixture(deploySuiteWithModularCompliancesFixture);
 
-          const module = await ethers.deployContract('TestModule');
+          const module = await ethers.deployContract('CountryAllowModule');
 
           await expect(compliance.removeModule(module.address)).to.be.revertedWith('module not bound');
         });
@@ -251,10 +285,10 @@ describe('ModularCompliance', () => {
             suite: { compliance },
           } = await loadFixture(deploySuiteWithModularCompliancesFixture);
 
-          const module = await ethers.deployContract('TestModule');
+          const module = await ethers.deployContract('CountryAllowModule');
           await compliance.addModule(module.address);
 
-          const moduleB = await ethers.deployContract('TestModule');
+          const moduleB = await ethers.deployContract('CountryAllowModule');
           await compliance.addModule(moduleB.address);
 
           const tx = await compliance.removeModule(moduleB.address);
