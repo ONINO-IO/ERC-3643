@@ -1,10 +1,8 @@
-import '@xyrusworx/hardhat-solidity-json';
-import '@nomicfoundation/hardhat-toolbox';
-import { HardhatUserConfig } from 'hardhat/config';
-import '@openzeppelin/hardhat-upgrades';
-import 'solidity-coverage';
-import '@nomiclabs/hardhat-solhint';
-import '@primitivefi/hardhat-dodoc';
+import '@nomicfoundation/hardhat-ethers';
+import { HardhatUserConfig } from 'hardhat/types';
+
+const ONINO_MAINNET_URL = 'https://rpc.onino.io';
+const PRIVATE_KEY = '...'; // Add your actual deployment private key here
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -16,14 +14,11 @@ const config: HardhatUserConfig = {
       },
     },
   },
-  gasReporter: {
-    enabled: true,
-  },
-  dodoc: {
-    runOnCompile: false,
-    debugMode: true,
-    outputDir: "./docgen",
-    freshOutput: true,
+  networks: {
+    onino: {
+      url: ONINO_MAINNET_URL,
+      accounts: [PRIVATE_KEY],
+    },
   },
 };
 
