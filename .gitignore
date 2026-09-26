@@ -11,6 +11,10 @@ cache/
 docgen/
 flat/
 
+# Local deployment records
+deployments/hardhat.json
+deployments/localhost.json
+
 # IDEs
 .idea/
 .vscode/

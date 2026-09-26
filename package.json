@@ -28,7 +28,8 @@
     "lint": "npm run lint:sol",
     "lint:sol": "solhint \"contracts/**/*.sol\"",
     "docs": "hardhat dodoc",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "deploy:infra": "hardhat run scripts/deploy-infra.ts"
   },
   "repository": {
     "type": "git",
