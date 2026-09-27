@@ -29,6 +29,8 @@
  *   TREX_OWNER                 address receiving ownership of the IA, IdFactory, Identity IA and gateway at the end
  *   CONFIRMATIONS              block confirmations to wait for on each transaction, >= 1 (default: 1)
  *
+ * Step-by-step guide: docs/DEPLOYMENT.md
+ *
  * Usage:
  *   RPC_URL=https://... EXPECTED_CHAIN_ID=1234 npm run deploy:infra
  *   npx hardhat run --network localhost scripts/deploy-infra.ts
