@@ -6,7 +6,9 @@ import 'solidity-coverage';
 import '@nomiclabs/hardhat-solhint';
 import '@primitivefi/hardhat-dodoc';
 
-const { DEPLOYER_PRIVATE_KEY, ONINO_RPC_URL } = process.env;
+// Deployment target for scripts/deploy-infra.ts, only defined when RPC_URL is set so it never falls back to another chain.
+// The deployer key is read by the script itself (hardhat vars), not here, so other hardhat commands never load it.
+const { RPC_URL } = process.env;
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -19,10 +21,7 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    onino: {
-      url: ONINO_RPC_URL ?? 'https://rpc.onino.io',
-      accounts: DEPLOYER_PRIVATE_KEY ? [DEPLOYER_PRIVATE_KEY] : [],
-    },
+    ...(RPC_URL ? { target: { url: RPC_URL } } : {}),
   },
   gasReporter: {
     enabled: true,

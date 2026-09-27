@@ -29,7 +29,7 @@
     "lint:sol": "solhint \"contracts/**/*.sol\"",
     "docs": "hardhat dodoc",
     "prepare": "husky install",
-    "deploy:infra": "hardhat run scripts/deploy-infra.ts"
+    "deploy:infra": "hardhat run --network target scripts/deploy-infra.ts"
   },
   "repository": {
     "type": "git",

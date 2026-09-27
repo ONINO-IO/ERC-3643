@@ -12,8 +12,7 @@ docgen/
 flat/
 
 # Local deployment records
-deployments/hardhat.json
-deployments/localhost.json
+deployments/31337/
 
 # IDEs
 .idea/
