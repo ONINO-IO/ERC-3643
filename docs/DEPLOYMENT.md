@@ -3,8 +3,9 @@
 Diese Anleitung beschreibt, wie du für einen Kunden die komplette T-REX-Infrastruktur (Factory, Gateway, ONCHAINID usw.)
 auf einer neuen EVM-Chain deployst und die Ergebnisse als PR ins Tokenization-Platform-Repo bringst.
 
-Das Skript dazu ist `scripts/deploy-infra.ts`. Es kann nach einem Abbruch jederzeit **mit demselben Befehl einfach neu gestartet werden**:
-Es macht dort weiter, wo es aufgehört hat, und sendet nichts doppelt.
+Das Skript dazu ist `scripts/deploy-infra.ts`. Wird es abgebrochen (Netzwerkfehler, Strg+C, zu wenig Guthaben),
+startest du es einfach **mit demselben Befehl** neu. Es macht dort weiter, wo es aufgehört hat. Transaktionen, die beim Abbruch
+noch unterwegs waren, wartet es ab, statt sie ein zweites Mal zu senden.
 
 ---
 
@@ -13,14 +14,21 @@ Es macht dort weiter, wo es aufgehört hat, und sendet nichts doppelt.
 | Schritt | Was | Dauer |
 | --- | --- | --- |
 | 0 | Einmalig: Rechner vorbereiten | 5 Min (nur beim ersten Mal) |
-| 1 | Daten vom Kunden / zur Chain sammeln | 5 Min |
-| 2 | Deployer-Wallet aufladen | abhängig vom Kunden |
-| 3 | Probelauf lokal | 1 Min |
+| 1 | Daten vom Kunden / zur Chain sammeln und prüfen | 5 Min |
+| 2 | Deployer-Wallet anlegen und aufladen | abhängig vom Kunden |
+| 3 | Probelauf lokal mit den echten Adressen | 1 Min |
 | 4 | Private Key hinterlegen | 1 Min |
 | 5 | Deployment starten | 1–5 Min |
 | 6 | Private Key wieder löschen | 10 Sek |
 | 7 | Ergebnis prüfen | 2 Min |
 | 8 | PR im Tokenization-Platform-Repo öffnen | 2 Min |
+
+### Allgemeine Hinweise zu den Ausgaben
+
+- Warnungen wie `DeprecationWarning: The punycode module is deprecated`, `npm WARN deprecated ...` oder
+  `... vulnerabilities` kannst du **ignorieren**.
+- Wenn ein Befehl fehlschlägt, erscheint oft ein langer Block mit `at ...`-Zeilen. Wichtig ist nur die Zeile, die mit
+  **`Error`** beginnt. Diese Meldung schlägst du in der Fehlertabelle bei Schritt 5 nach.
 
 ---
 
@@ -43,19 +51,21 @@ npm ci
 npx hardhat compile
 ```
 
-`npx hardhat compile` lädt beim ersten Mal den Solidity-Compiler 0.8.17 herunter und muss mit
-`Compiled ... Solidity files successfully` enden.
+`npx hardhat compile` lädt beim ersten Mal den Solidity-Compiler herunter. Es muss mit
+`Compiled ... Solidity files successfully` oder `Nothing to compile` enden.
 
-> Bei jedem späteren Deployment reicht im Ordner `ERC-3643`:
+> Bei jedem **neuen** Deployment führst du vorher im Ordner `ERC-3643` aus:
 > ```bash
 > git pull
 > npm ci
 > npx hardhat compile
 > ```
+> ⚠️ **Nicht** zwischen einem abgebrochenen Deployment und seiner Fortsetzung. Dann könnte sich der Code geändert haben,
+> und das Skript verweigert das Fortsetzen (siehe Fehlertabelle: „different bytecode“).
 
 ---
 
-## Schritt 1: Daten sammeln
+## Schritt 1: Daten sammeln und prüfen
 
 Fülle diese Tabelle aus, **bevor** du irgendetwas startest:
 
@@ -66,16 +76,36 @@ Fülle diese Tabelle aus, **bevor** du irgendetwas startest:
 | `GATEWAY_DEPLOYERS` | Wallet(s) unseres Plattform-Backends, die später Tokens deployen dürfen (kommagetrennt) | Backend-Team | `0xAbC...123` |
 | `TREX_OWNER` | Endgültiger Owner der Infrastruktur, idealerweise ein Multisig (Safe) | wir / Kunde | `0xDeF...456` |
 
-**Chain-ID gegenprüfen.** Dieser Befehl fragt die Chain direkt. Die Antwort ist hexadezimal:
+Für die folgenden Prüfbefehle setzt du die RPC-URL einmal im Terminal:
+
+```bash
+export RPC_URL=https://rpc.example-chain.io
+```
+
+> Enthält die RPC-URL einen **API-Key**, gib sie stattdessen verdeckt ein. Sonst landet der Key in der Shell-History:
+> ```bash
+> read -rsp 'RPC_URL: ' RPC_URL && export RPC_URL && echo
+> ```
+
+**1a) Chain-ID gegenprüfen.** Die Antwort ist hexadezimal:
 
 ```bash
 curl -s -X POST -H 'content-type: application/json' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
-  https://rpc.example-chain.io
-# {"jsonrpc":"2.0","id":1,"result":"0x3039"}   -> 0x3039 = 12345
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' "$RPC_URL"
+# {"jsonrpc":"2.0","id":1,"result":"0x3039"}
+node -p "0x3039"     # den Hex-Wert aus der Antwort einsetzen -> 12345
 ```
 
-Umrechnen geht z. B. mit `node -p "0x3039"`.
+**1b) Prüfen, ob der Multisig (`TREX_OWNER`) auf dieser Chain existiert:**
+
+```bash
+curl -s -X POST -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["0xDeF...456","latest"]}' "$RPC_URL"
+```
+
+- Ist `"result"` **länger als `"0x"`**, liegt dort ein Contract (z. B. ein Safe). ✅
+- Ist `"result":"0x"`, liegt dort **kein** Contract. Ein Safe wurde auf dieser Chain also noch nicht angelegt, oder die
+  Adresse ist falsch. ❌ So nicht weitermachen.
 
 > ⚠️ **`TREX_OWNER` dreimal prüfen!**
 > Die Ownership-Übertragung ist endgültig. Bei einem Tippfehler oder einer Adresse, die du auf dieser Chain nicht kontrollierst,
@@ -85,39 +115,58 @@ Umrechnen geht z. B. mit `node -p "0x3039"`.
 
 ---
 
-## Schritt 2: Deployer-Wallet vorbereiten und aufladen
+## Schritt 2: Deployer-Wallet anlegen und aufladen
 
-1. **Lege für jeden Kunden bzw. jede Chain eine neue Wallet an** (z. B. in MetaMask oder Rabby: „Konto hinzufügen“).
-   Verwende keine Wallet, die sonst Geld hält.
-2. Ein komplettes Deployment braucht etwa **29 Mio. Gas**. Das Skript startet nur, wenn Guthaben für **35 Mio. Gas** vorhanden ist.
-   Den aktuellen Gaspreis fragst du so ab:
+1. **Lege für jeden Kunden bzw. jede Chain eine neue Wallet an.** Verwende keine Wallet, die sonst Geld hält.
+   In MetaMask: Kontoauswahl oben → **Konto hinzufügen** → **Neues Konto**.
+2. **Private Key exportieren** (brauchst du in Schritt 4). In MetaMask: **⋮** beim Konto → **Kontodetails** →
+   **Privaten Schlüssel anzeigen** → Passwort eingeben → kopieren. Den Key nirgends abspeichern.
+3. **Benötigtes Guthaben berechnen.** Ein komplettes Deployment braucht etwa **29 Mio. Gas**. Das Skript startet nur, wenn
+   Guthaben für **35 Mio. Gas** vorhanden ist. Frag den aktuellen Gaspreis ab:
 
    ```bash
    curl -s -X POST -H 'content-type: application/json' \
-     --data '{"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}' \
-     https://rpc.example-chain.io
-   # {"result":"0x3b9aca00"}  -> node -p "0x3b9aca00"  -> 1000000000 wei = 1 gwei
+     --data '{"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}' "$RPC_URL"
+   # {"jsonrpc":"2.0","id":1,"result":"0x6fc23ac0"}
    ```
 
-   **Benötigtes Guthaben = 35.000.000 × Gaspreis**, im Beispiel 35.000.000 × 1 gwei = **0,035 Native-Token**.
-   Schick zur Sicherheit etwa doppelt so viel auf die Deployer-Wallet.
+   Dann rechnest du das benötigte Guthaben direkt in Native-Token aus. Den Hex-Wert aus der Antwort einsetzen:
+
+   ```bash
+   node -p "35e6 * 0x6fc23ac0 / 1e18"
+   # 0.065625   <- so viele Native-Token (ETH, POL, ...) werden mindestens benötigt
+   ```
+
+4. **Schick etwa das Doppelte** dieses Betrags auf die neue Deployer-Wallet.
 
 ---
 
-## Schritt 3: Probelauf lokal (ohne echte Chain, kostenlos)
+## Schritt 3: Probelauf lokal mit den echten Adressen (kostenlos)
+
+Der Probelauf spielt das komplette Deployment auf einer simulierten Chain auf deinem Rechner durch.
+Dabei sendet er **nichts** an eine echte Chain. Setz die **gleichen Adressen** ein wie später in Schritt 5.
+So fallen falsch kopierte Adressen schon hier auf.
 
 ```bash
+GATEWAY_DEPLOYERS=0xAbC...123 \
+TREX_OWNER=0xDeF...456 \
 npx hardhat run scripts/deploy-infra.ts
 ```
 
-Am Ende muss `TREXGateway (entry point for token suite deployments): 0x...` stehen.
-Wenn das hier nicht funktioniert, brauchst du Schritt 5 gar nicht erst zu versuchen.
+Es muss enden mit:
 
-Den lokalen Ausgabe-Ordner kannst du danach löschen:
-
-```bash
-rm -rf deployments/31337
 ```
+  + TREXGateway.transferOwnership (tx 0x...)      <- nur wenn TREX_OWNER gesetzt ist
+Dry run on the in-process hardhat network finished, nothing was sent to a real chain.
+...
+TREXGateway (entry point for token suite deployments): 0x...
+```
+
+- Kommt `Error: invalid address` oder `Error: bad address checksum`, ist eine Adresse in `GATEWAY_DEPLOYERS` oder `TREX_OWNER`
+  falsch kopiert. Kopier sie neu und wiederhol Schritt 3.
+- Wenn der Probelauf nicht funktioniert, brauchst du Schritt 5 gar nicht erst zu versuchen.
+
+Das Ergebnis des Probelaufs landet in `deployments/dry-run/` und wird bei jedem Probelauf überschrieben. Du musst dort nichts tun.
 
 ---
 
@@ -127,9 +176,12 @@ rm -rf deployments/31337
 npx hardhat vars set DEPLOYER_PRIVATE_KEY
 ```
 
-Du wirst nach `Enter value:` gefragt. Füge den Private Key der Deployer-Wallet ein (mit oder ohne `0x`) und drück Enter.
-Die Eingabe ist unsichtbar. Das ist Absicht.
+Du wirst nach `Enter value:` gefragt. Füge den Private Key aus Schritt 2 ein (mit oder ohne `0x`) und drück Enter.
+Die Eingabe erscheint nur als Sternchen `*`.
 
+> Funktioniert das Einfügen im Terminal nicht, kannst du den Key auch aus der Zwischenablage übergeben
+> (macOS: `pbpaste | npx hardhat vars set DEPLOYER_PRIVATE_KEY`).
+>
 > ❌ **Niemals** den Key direkt in den Befehl schreiben (`DEPLOYER_PRIVATE_KEY=0x... npm run ...`).
 > Sonst steht er für immer in deiner Shell-History.
 
@@ -137,15 +189,36 @@ Die Eingabe ist unsichtbar. Das ist Absicht.
 
 ## Schritt 5: Deployment starten
 
-Ersetze die Beispielwerte durch deine Werte aus Schritt 1 und führe **einen** Befehl aus:
+> ⚠️ **Ab hier wird es echt.** Nach deiner Bestätigung sendet der Befehl echte Transaktionen, die Geld kosten, und überträgt
+> am Ende die Ownership. Nutz ihn **nicht**, um Variablen auszuprobieren. Dafür ist der Probelauf in Schritt 3 da.
+
+Ersetze die Beispielwerte durch deine Werte aus Schritt 1. `RPC_URL` ist aus Schritt 1 noch gesetzt. Wenn du inzwischen ein
+neues Terminal geöffnet hast, setz es erneut.
 
 ```bash
-RPC_URL=https://rpc.example-chain.io \
 EXPECTED_CHAIN_ID=12345 \
-GATEWAY_DEPLOYERS=0xBackendWallet \
-TREX_OWNER=0xMultisigAdresse \
+GATEWAY_DEPLOYERS=0xAbC...123 \
+TREX_OWNER=0xDeF...456 \
 npm run deploy:infra
 ```
+
+Das Skript prüft zuerst alles und zeigt dir dann eine Zusammenfassung:
+
+```
+About to send REAL transactions:
+  Chain              12345 via rpc.example-chain.io
+  Deployer           0x... (balance 0.13, ~0.065625 needed)
+  TREX_OWNER         0xDeF...456
+  GATEWAY_DEPLOYERS  0xAbC...123
+  Public gateway     false
+  Mode               fresh deployment
+
+Type the chain id (12345) to start, anything else aborts:
+```
+
+**Lies die Zusammenfassung Zeile für Zeile.** Steht unter `TREX_OWNER` die Warnung
+`WARNING: no contract at this address on this chain`, gibst du **nichts** ein, drückst Enter und prüfst Schritt 1b.
+Ist alles richtig, tippst du die Chain-ID ein und drückst Enter.
 
 **Optionale Zusatz-Variablen** (normalerweise weglassen):
 
@@ -155,14 +228,20 @@ npm run deploy:infra
 | `GATEWAY_PUBLIC_DEPLOYMENT` | `true` = jeder darf über das Gateway eigene Tokens deployen | `false` |
 | `TREX_VERSION` | Versionsnummer, die registriert wird | Version aus `package.json` |
 
-**So sieht ein erfolgreicher Lauf aus** (Adressen gekürzt):
+**So sieht ein erfolgreicher Lauf aus** (gekürzt):
 
 ```
-Deploying T-REX 4.1.3 infrastructure on "target" (chain 12345)
-Deployer: 0x... (balance 0.07)
+> @erc3643org/erc-3643@4.1.3 deploy:infra
+> hardhat run --network target scripts/deploy-infra.ts
 
+Deploying T-REX 4.1.3 infrastructure on "target" (chain 12345)
+...
 1) Implementations
   + Token deployed at 0x...
+  ...
+6) TREXGateway
+  + TREXGateway deployed at 0x...
+  = TREXGateway.setPublicDeploymentStatus already applied
   ...
 7) Access control
   + TREXGateway.batchAddDeployer (tx 0x...)
@@ -173,25 +252,35 @@ Deployment record and ABIs: .../deployments/12345
 TREXGateway (entry point for token suite deployments): 0x...
 ```
 
-- `+` bedeutet: gerade neu ausgeführt.
-- `=` bedeutet: war schon erledigt und wurde übersprungen.
+Was die Zeichen am Zeilenanfang bedeuten:
+
+| Zeichen | Bedeutung |
+| --- | --- |
+| `+` | gerade neu ausgeführt |
+| `=` | war schon erledigt und wurde übersprungen. **Auch beim allerersten Lauf** erscheint `= TREXGateway.setPublicDeploymentStatus already applied`, das ist normal. |
+| `~` | nur beim Fortsetzen: Das Skript wartet auf eine Transaktion, die beim Abbruch noch unterwegs war |
+
+Beim Fortsetzen steht außerdem ganz oben `Resuming deployment from .../deployment.json`, und in der Zusammenfassung
+`Mode resume (...)`.
 
 ### Wenn etwas schiefgeht
 
 **Grundregel: Fehler beheben und genau denselben Befehl noch einmal ausführen.** Bereits Erledigtes wird übersprungen.
 
-| Fehlermeldung | Bedeutung | Lösung |
+| Fehlermeldung (Zeile mit `Error`) | Bedeutung | Lösung |
 | --- | --- | --- |
-| `HH100: Network target doesn't exist` | `RPC_URL` fehlt oder ist leer | `RPC_URL=...` im Befehl setzen |
+| `Aborted, nothing was sent` | Du hast bei der Rückfrage nicht die richtige Chain-ID eingegeben | Zusammenfassung prüfen, Befehl wiederholen |
+| `HH100: Network target doesn't exist` | `RPC_URL` fehlt oder ist leer (z. B. neues Terminal) | `RPC_URL` setzen (Schritt 1) |
 | `EXPECTED_CHAIN_ID is required ...` | Chain-ID fehlt | `EXPECTED_CHAIN_ID=...` setzen |
-| `RPC reports chain X, EXPECTED_CHAIN_ID is Y` | Die RPC-URL gehört zu einer anderen Chain | RPC-URL bzw. Chain-ID prüfen (Schritt 1) |
+| `RPC reports chain X, EXPECTED_CHAIN_ID is Y` | Die RPC-URL gehört zu einer anderen Chain | RPC-URL bzw. Chain-ID prüfen (Schritt 1a) |
 | `DEPLOYER_PRIVATE_KEY is not set` | Key nicht hinterlegt | Schritt 4 |
 | `Deployer balance ... is below the estimated ...` | Zu wenig Guthaben | Wallet aufladen (Schritt 2), Befehl wiederholen |
-| `Invalid CONFIRMATIONS` / `Invalid GATEWAY_PUBLIC_DEPLOYMENT` | Tippfehler in einer Variable | Wert korrigieren (`true`/`false`, Zahl ≥ 1) |
+| `invalid address` / `bad address checksum` | Adresse in `GATEWAY_DEPLOYERS` oder `TREX_OWNER` falsch kopiert | Adresse neu kopieren |
+| `Invalid CONFIRMATIONS` / `Invalid GATEWAY_PUBLIC_DEPLOYMENT` | Tippfehler in einer Variable | Wert korrigieren (`true`/`false`, ganze Zahl ≥ 1) |
 | `... was deployed by 0xA, resume it with that key` | Du hast einen anderen Key hinterlegt als beim ersten Versuch | Den ursprünglichen Key wieder hinterlegen (Schritt 4) |
 | `... was deployed from different bytecode than the current artifacts` | Zwischen zwei Versuchen wurde der Code geändert (anderer Branch, `git pull`) | Zurück auf den Stand des ersten Versuchs wechseln, **oder** `deployments/<chainId>` wegverschieben und komplett neu deployen |
 | `... is stale: no code for ...` | Die Chain wurde zurückgesetzt (typisch für Testnetze) | `deployments/<chainId>` wegverschieben, neu deployen |
-| `... is owned by 0x..., not by the deployer` | Die Ownership liegt schon beim `TREX_OWNER` und der Deployer darf nichts mehr ändern | Die Änderung (z. B. einen neuen Gateway-Deployer) direkt über den Multisig ausführen |
+| `... is owned by 0x..., not by the deployer` | Die Ownership liegt schon beim `TREX_OWNER`, der Deployer darf nichts mehr ändern | Die Änderung (z. B. einen neuen Gateway-Deployer) direkt über den Multisig ausführen |
 | Timeout / `network error` / Abbruch mit Strg+C | RPC war kurz weg | Befehl einfach wiederholen |
 
 > Lösche den Ordner `deployments/<chainId>` **nie**, solange das Deployment nicht fertig ist.
@@ -205,8 +294,11 @@ Sobald das Deployment durch ist:
 
 ```bash
 npx hardhat vars delete DEPLOYER_PRIVATE_KEY
-npx hardhat vars list   # darf DEPLOYER_PRIVATE_KEY nicht mehr anzeigen
+npx hardhat vars list
 ```
+
+**Beide Befehle geben nichts aus.** Das ist korrekt und heißt: Es ist kein Key mehr gespeichert.
+Taucht bei `vars list` noch `DEPLOYER_PRIVATE_KEY` auf, wiederhol den ersten Befehl.
 
 Hardhat speichert den Key sonst **unverschlüsselt** in einer Datei auf deinem Rechner (`npx hardhat vars path` zeigt, wo).
 Übrig gebliebenes Guthaben auf der Deployer-Wallet kannst du danach zurücküberweisen.
@@ -231,8 +323,13 @@ deployments/12345/
 Kurz-Check:
 
 1. In `deployment.json` gibt es unter `factories` die Einträge `TREXGateway`, `TREXFactory`, `IdFactory` und `IAFactory`,
-   jeweils mit `address` und `blockNumber`.
-2. Die `TREXGateway`-Adresse im Block-Explorer der Chain öffnen: Dort muss ein Contract liegen.
+   jeweils mit `address` und `blockNumber`. Unter `pending` steht `{}`.
+2. Das Gateway liegt wirklich auf der Chain. Öffne die `TREXGateway`-Adresse im Block-Explorer. Gibt es keinen Explorer,
+   prüfst du es per `curl` (Adresse einsetzen). `"result"` muss länger als `"0x"` sein:
+   ```bash
+   curl -s -X POST -H 'content-type: application/json' \
+     --data '{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["0xGATEWAY...","latest"]}' "$RPC_URL"
+   ```
 3. Wenn `TREX_OWNER` gesetzt war: In `deployment.json` stehen unter `transactions` neben `TREXFactory.transferOwnership` vier weitere
    `...transferOwnership`-Einträge: `TREXImplementationAuthority`, `IdentityImplementationAuthority`, `IdFactory` und `TREXGateway`.
 
@@ -245,42 +342,57 @@ Kurz-Check:
 | `factories.IdFactory` | Erstellt ONCHAINIDs für Investoren |
 | `authorities.TREXImplementationAuthority` | Versionsverwaltung und Upgrades der Token-Logik |
 
+> 📦 **Wohin mit `deployments/<chainId>`?**
+> **Nicht** im ERC-3643-Repo committen. Der Ordner kommt in Schritt 8 ins Plattform-Repo. Leg zusätzlich eine
+> Sicherungskopie ab, z. B. im internen Drive. Du brauchst den Ordner, falls du auf dieser Chain später noch etwas nachziehen willst
+> (siehe „Später“).
+
 ---
 
 ## Schritt 8: PR im Tokenization-Platform-Repo öffnen
 
+**8a) Einmal die Variablen setzen.** Die ersten beiden Zeilen passt du an. Die Pfade müssen zu deinem Rechner passen:
+
 ```bash
-# 1. In das Plattform-Repo wechseln und aktuellen Stand holen
-cd ../<tokenization-platform-repo>
+CHAIN_ID=12345                                              # Chain-ID aus Schritt 1
+KUNDE="Kundenname"
+ERC3643_DIR=~/code/ERC-3643                                 # wo das ERC-3643-Repo liegt
+PLATFORM_DIR=~/code/<tokenization-platform-repo>            # wo das Plattform-Repo liegt
+TARGET_DIR=<pfad-für-contracts>/$CHAIN_ID                   # Zielordner im Plattform-Repo
+```
+
+**8b) Branch anlegen, Dateien kopieren und prüfen:**
+
+```bash
+cd "$PLATFORM_DIR"
 git checkout main && git pull
+git checkout -b chore/trex-infra-chain-$CHAIN_ID
 
-# 2. Neuen Branch anlegen
-git checkout -b chore/trex-infra-chain-12345
-
-# 3. Ordner hineinkopieren (Zielpfad an die Struktur des Plattform-Repos anpassen)
-mkdir -p <pfad-für-contracts>/12345
-cp -r ../ERC-3643/deployments/12345/. <pfad-für-contracts>/12345/
-
-# 4. Committen und pushen
-git add <pfad-für-contracts>/12345
-git commit -m "Add T-REX infrastructure for chain 12345 (<Kundenname>)"
-git push -u origin chore/trex-infra-chain-12345
+mkdir -p "$TARGET_DIR"
+cp -r "$ERC3643_DIR/deployments/$CHAIN_ID/." "$TARGET_DIR/"
+git add "$TARGET_DIR"
+git status
 ```
 
-Danach öffnest du den PR auf GitHub, oder mit der GitHub CLI:
+`git status` muss **16 neue Dateien** unter `Changes to be committed` zeigen: `deployment.json` und 15 Dateien in `abis/`.
+Sind es weniger, schließt die `.gitignore` des Plattform-Repos Dateien aus. Dann bitte melden und nicht weitermachen.
+
+**8c) Committen, pushen, PR öffnen:**
 
 ```bash
-gh pr create --fill
+git commit -m "Add T-REX infrastructure for chain $CHAIN_ID ($KUNDE)"
+git push -u origin chore/trex-infra-chain-$CHAIN_ID
 ```
 
-Schreib in die PR-Beschreibung am besten: Kunde, Chain-Name, Chain-ID, `TREXGateway`-Adresse, `TREX_OWNER`.
-
-> Leg zusätzlich eine Sicherungskopie von `deployments/<chainId>` ab, z. B. im internen Drive.
-> Du brauchst sie, falls du auf dieser Chain später noch etwas nachziehen willst.
+Den PR öffnest du auf GitHub über den Link, den `git push` ausgibt, oder mit der GitHub CLI: `gh pr create --fill`.
+In die PR-Beschreibung gehören: Kunde, Chain-Name, Chain-ID, `TREXGateway`-Adresse und `TREX_OWNER`.
 
 ---
 
 ## Später: Änderungen nach dem Deployment
+
+Für alle Änderungen per Skript brauchst du den Ordner `deployments/<chainId>` (bzw. die Sicherungskopie) wieder im
+ERC-3643-Repo, denselben Code-Stand und denselben Deployer-Key (Schritt 4).
 
 | Ich will ... | So geht's |
 | --- | --- |

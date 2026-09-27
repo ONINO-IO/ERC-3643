@@ -14,7 +14,11 @@
  *   deployments/<chainId>/deployment.json   address, deploy block and deploy tx of every contract + config txs
  *   deployments/<chainId>/abis/<Name>.json  ABI of every deployed contract, plus ClaimIssuer and IdentityProxy
  * The record is written after every transaction. Re-running the script on the same chain resumes from it:
- * contracts already deployed and configuration already applied on-chain are skipped.
+ * contracts already deployed and configuration already applied on-chain are skipped, and transactions that were
+ * still in flight when a previous run was interrupted are awaited instead of being sent again.
+ *
+ * Outside hardhat/localhost the script prints a summary and only sends transactions after the chain id is typed in.
+ * On the in-process hardhat network (dry run) the output goes to deployments/dry-run instead.
  *
  * Secrets (hardhat configuration variables, never pass them inline on the command line):
  *   npx hardhat vars set DEPLOYER_PRIVATE_KEY      prompts for the key, remove it afterwards with `npx hardhat vars delete`
@@ -39,6 +43,7 @@ import fs from 'fs';
 import path from 'path';
 import hre, { ethers } from 'hardhat';
 import { vars } from 'hardhat/config';
+import readline from 'readline';
 import OnchainID from '@onchain-id/solidity';
 import { Contract, ContractFactory, ContractTransaction, Signer, Wallet } from 'ethers';
 
@@ -60,6 +65,8 @@ type DeploymentRecord = {
   authorities: Record<string, DeployedContract>;
   factories: Record<string, DeployedContract>;
   transactions: Record<string, string>;
+  // Transactions sent but not confirmed yet, awaited on resume so an interrupted run never sends them twice.
+  pending: Record<string, { hash: string; bytecodeHash?: string }>;
   createdAt: string;
   updatedAt: string;
 };
@@ -105,6 +112,21 @@ function sameAddress(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
+function ask(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    let answered = false;
+    rl.question(question, (answer) => {
+      answered = true;
+      rl.close();
+      resolve(answer.trim());
+    });
+    rl.on('close', () => {
+      if (!answered) resolve('');
+    });
+  });
+}
+
 async function main() {
   const networkName = hre.network.name;
   const isLocal = LOCAL_NETWORKS.includes(networkName);
@@ -140,7 +162,7 @@ async function main() {
     throw new Error(`Invalid CONFIRMATIONS "${process.env.CONFIRMATIONS}", expected an integer >= 1`);
   }
 
-  const outputDir = path.join(__dirname, '..', 'deployments', String(chainId));
+  const outputDir = path.join(__dirname, '..', 'deployments', networkName === 'hardhat' ? 'dry-run' : String(chainId));
   const recordPath = path.join(outputDir, 'deployment.json');
   const now = new Date().toISOString();
   let record: DeploymentRecord = {
@@ -152,6 +174,7 @@ async function main() {
     authorities: {},
     factories: {},
     transactions: {},
+    pending: {},
     createdAt: now,
     updatedAt: now,
   };
@@ -173,7 +196,7 @@ async function main() {
     if (missing) {
       throw new Error(`${recordPath} is stale: no code for ${missing[0]} at ${missing[1].address} (chain reset?), remove it to redeploy`);
     }
-    record = existing;
+    record = { ...existing, pending: existing.pending ?? {} };
     console.log(`Resuming deployment from ${recordPath}`);
   }
 
@@ -187,6 +210,28 @@ async function main() {
     console.warn(`Warning: ${message} for a full run`);
   }
 
+  if (!isLocal) {
+    const { url } = hre.network.config as { url: string };
+    const ownerCode = finalOwner ? await ethers.provider.getCode(finalOwner) : '0x';
+    const recordedCount = Object.keys({ ...record.implementations, ...record.authorities, ...record.factories }).length;
+    console.log('\nAbout to send REAL transactions:');
+    console.log(`  Chain              ${chainId} via ${new URL(url).host}`);
+    console.log(
+      `  Deployer           ${deployerAddress} (balance ${ethers.utils.formatEther(balance)}, ~${ethers.utils.formatEther(budget)} needed)`,
+    );
+    console.log(`  TREX_OWNER         ${finalOwner ?? '(not set, deployer stays owner)'}`);
+    if (finalOwner && ownerCode === '0x') {
+      console.log('                     WARNING: no contract at this address on this chain (not a multisig here?)');
+    }
+    console.log(`  GATEWAY_DEPLOYERS  ${gatewayDeployers.join(', ') || '(none)'}`);
+    console.log(`  Public gateway     ${publicDeployment}`);
+    console.log(`  Mode               ${recordedCount ? `resume (${recordedCount} contracts already deployed)` : 'fresh deployment'}`);
+    const answer = await ask(`\nType the chain id (${chainId}) to start, anything else aborts: `);
+    if (answer !== String(chainId)) {
+      throw new Error('Aborted, nothing was sent');
+    }
+  }
+
   const save = () => {
     record.updatedAt = new Date().toISOString();
     fs.mkdirSync(outputDir, { recursive: true });
@@ -195,17 +240,58 @@ async function main() {
 
   const abis: Record<string, ContractFactory['interface']> = {};
 
+  // Awaits a transaction left in flight by an interrupted run. Returns its receipt, or null if it never landed or reverted.
+  const resolvePending = async (key: string) => {
+    const pending = record.pending[key];
+    if (!pending) return null;
+    console.log(`  ~ ${key}: waiting for transaction ${pending.hash} from the interrupted run`);
+    const tx = await ethers.provider.getTransaction(pending.hash);
+    let receipt = null;
+    if (tx) {
+      receipt = await tx.wait(confirmations).catch((error) => {
+        if (error.receipt) return null; // reverted: not applied, sent again below
+        throw error;
+      });
+    }
+    delete record.pending[key];
+    save();
+    return receipt;
+  };
+
   // Deploys the given contracts, sent back-to-back with explicit nonces and confirmed together.
   // Contracts already recorded are attached instead, provided their bytecode matches the current artifacts.
   const deployAll = async (items: DeployItem[]): Promise<Contract[]> => {
+    const recovered = new Set<string>();
+    await items.reduce(
+      (previous, { section, key }) =>
+        previous.then(async () => {
+          const bytecodeHash = record.pending[key]?.bytecodeHash;
+          const receipt = await resolvePending(key);
+          if (receipt?.contractAddress && bytecodeHash) {
+            record[section][key] = {
+              address: receipt.contractAddress,
+              blockNumber: receipt.blockNumber,
+              transactionHash: receipt.transactionHash,
+              bytecodeHash,
+            };
+            save();
+            recovered.add(key);
+            console.log(`  + ${key} deployed at ${receipt.contractAddress}`);
+          }
+        }),
+      Promise.resolve(),
+    );
     const pending = items.filter(({ section, key }) => !record[section][key]);
     let nonce = await deployer.getTransactionCount('pending');
     const sent: Contract[] = [];
     // Sequential sends: each needs the next nonce, only the confirmations are awaited in parallel.
     await pending.reduce(
-      (previous, { factory, args = [] }) =>
+      (previous, { key, factory, args = [] }) =>
         previous.then(async () => {
-          sent.push(await factory.deploy(...args, { nonce }));
+          const contract = await factory.deploy(...args, { nonce });
+          record.pending[key] = { hash: contract.deployTransaction.hash, bytecodeHash: ethers.utils.keccak256(factory.bytecode) };
+          save();
+          sent.push(contract);
           nonce += 1;
         }),
       Promise.resolve(),
@@ -219,6 +305,7 @@ async function main() {
           transactionHash: receipt.transactionHash,
           bytecodeHash: ethers.utils.keccak256(factory.bytecode),
         };
+        delete record.pending[key];
         save();
         console.log(`  + ${key} deployed at ${sent[index].address}`);
       }),
@@ -228,7 +315,7 @@ async function main() {
       if (deployed.bytecodeHash !== ethers.utils.keccak256(factory.bytecode)) {
         throw new Error(`${key} at ${deployed.address} was deployed from different bytecode than the current artifacts`);
       }
-      if (!pending.some((item) => item.key === key)) {
+      if (!pending.some((item) => item.key === key) && !recovered.has(key)) {
         console.log(`  = ${key} already deployed at ${deployed.address}`);
       }
       abis[key] = factory.interface;
@@ -241,6 +328,11 @@ async function main() {
   // Sends a configuration transaction unless `isDone` reports it as already applied.
   // `owned` is the contract whose owner has to send it, checked up front for a clear error instead of a revert.
   const step = async (key: string, owned: Contract, isDone: () => Promise<boolean>, send: () => Promise<ContractTransaction>) => {
+    const recoveredReceipt = await resolvePending(key);
+    if (recoveredReceipt) {
+      record.transactions[key] = recoveredReceipt.transactionHash;
+      save();
+    }
     if (await isDone()) {
       console.log(`  = ${key} already applied`);
       return;
@@ -249,8 +341,12 @@ async function main() {
     if (!sameAddress(owner, deployerAddress)) {
       throw new Error(`${key}: ${owned.address} is owned by ${owner}, not by the deployer ${deployerAddress}; apply it as the owner`);
     }
-    const receipt = await (await send()).wait(confirmations);
+    const tx = await send();
+    record.pending[key] = { hash: tx.hash };
+    save();
+    const receipt = await tx.wait(confirmations);
     record.transactions[key] = receipt.transactionHash;
+    delete record.pending[key];
     save();
     console.log(`  + ${key} (tx ${receipt.transactionHash})`);
   };
@@ -358,14 +454,21 @@ async function main() {
   );
 
   console.log('\n7) Access control');
-  const isDeployer = await Promise.all(gatewayDeployers.map((address) => trexGateway.isDeployer(address)));
-  const newDeployers = gatewayDeployers.filter((_, index) => !isDeployer[index]);
-  await step(
-    'TREXGateway.batchAddDeployer',
-    trexGateway,
-    async () => newDeployers.length === 0,
-    () => trexGateway.batchAddDeployer(newDeployers),
-  );
+  // Read on demand: a batch recovered from an interrupted run may already have added some of them.
+  const newDeployers = async () => {
+    const isDeployer = await Promise.all(gatewayDeployers.map((address) => trexGateway.isDeployer(address)));
+    return gatewayDeployers.filter((_, index) => !isDeployer[index]);
+  };
+  if (gatewayDeployers.length === 0) {
+    console.log('  GATEWAY_DEPLOYERS not set, no gateway deployer added');
+  } else {
+    await step(
+      'TREXGateway.batchAddDeployer',
+      trexGateway,
+      async () => (await newDeployers()).length === 0,
+      async () => trexGateway.batchAddDeployer(await newDeployers()),
+    );
+  }
 
   if (finalOwner) {
     const owned: [string, Contract][] = [
@@ -401,6 +504,9 @@ async function main() {
     fs.writeFileSync(path.join(abiDir, `${name}.json`), `${JSON.stringify(abi, null, 2)}\n`);
   });
 
+  if (networkName === 'hardhat') {
+    console.log('\nDry run on the in-process hardhat network finished, nothing was sent to a real chain.');
+  }
   console.log(`\nDeployment record and ABIs: ${outputDir}`);
   console.log(`TREXGateway (entry point for token suite deployments): ${trexGateway.address}`);
 }

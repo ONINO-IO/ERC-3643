@@ -13,6 +13,7 @@ flat/
 
 # Local deployment records
 deployments/31337/
+deployments/dry-run/
 
 # IDEs
 .idea/
