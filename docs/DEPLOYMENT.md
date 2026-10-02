@@ -29,7 +29,6 @@ Node.js ≥ 18 and git.
 
 ```bash
 git clone https://github.com/ONINO-IO/ERC-3643.git && cd ERC-3643
-git checkout claude/trex-deployment-script-review-j5bdig   # main once merged
 npm ci
 npx hardhat compile        # must end with "Compiled ... successfully" or "Nothing to compile"
 ```
