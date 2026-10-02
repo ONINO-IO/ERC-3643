@@ -11,6 +11,13 @@ cache/
 docgen/
 flat/
 
+# Deployment settings (template: .env.example)
+.env
+
+# Local deployment records
+deployments/31337/
+deployments/dry-run/
+
 # IDEs
 .idea/
 .vscode/
