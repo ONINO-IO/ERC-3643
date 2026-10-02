@@ -3,6 +3,8 @@
 Diese Anleitung beschreibt, wie du für einen Kunden die komplette T-REX-Infrastruktur (Factory, Gateway, ONCHAINID usw.)
 auf einer neuen EVM-Chain deployst und die Ergebnisse als PR ins Tokenization-Platform-Repo bringst.
 
+> Für **Polygon Mainnet** gibt es eine eigene Anleitung mit allen Werten vorausgefüllt: [DEPLOYMENT-POLYGON.md](./DEPLOYMENT-POLYGON.md).
+
 Das Skript dazu ist `scripts/deploy-infra.ts`. Wird es abgebrochen (Netzwerkfehler, Strg+C, zu wenig Guthaben),
 startest du es einfach **mit demselben Befehl** neu. Es macht dort weiter, wo es aufgehört hat. Transaktionen, die beim Abbruch
 noch unterwegs waren, wartet es ab, statt sie ein zweites Mal zu senden.

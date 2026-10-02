@@ -45,7 +45,7 @@ import hre, { ethers } from 'hardhat';
 import { vars } from 'hardhat/config';
 import readline from 'readline';
 import OnchainID from '@onchain-id/solidity';
-import { Contract, ContractFactory, ContractTransaction, Signer, Wallet } from 'ethers';
+import { BigNumber, Contract, ContractFactory, ContractTransaction, Signer, Wallet, providers } from 'ethers';
 
 type Version = { major: number; minor: number; patch: number };
 
@@ -78,6 +78,18 @@ type DeployItem = { section: Section; key: string; factory: ContractFactory; arg
 const LOCAL_NETWORKS = ['hardhat', 'localhost'];
 // Gas used by a full run (about 29M on a local node) with a safety margin, checked against the balance before a fresh run.
 const GAS_BUDGET = 35_000_000;
+
+// ethers v5 hardcodes a 1.5 gwei priority fee, below the minimum tip some chains enforce (Polygon PoS: 25 gwei),
+// which gets every transaction rejected as underpriced. This provider uses the tip suggested by the node instead.
+class SuggestedTipProvider extends providers.Web3Provider {
+  async getFeeData(): Promise<providers.FeeData> {
+    const feeData = await super.getFeeData();
+    if (!feeData.lastBaseFeePerGas || !feeData.maxPriorityFeePerGas) return feeData;
+    const suggestedTip = await this.send('eth_maxPriorityFeePerGas', []).catch(() => null);
+    const maxPriorityFeePerGas = suggestedTip ? BigNumber.from(suggestedTip) : feeData.maxPriorityFeePerGas;
+    return { ...feeData, maxPriorityFeePerGas, maxFeePerGas: feeData.lastBaseFeePerGas.mul(2).add(maxPriorityFeePerGas) };
+  }
+}
 
 function parseVersion(value: string): Version {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
@@ -144,7 +156,7 @@ async function main() {
 
   let deployer: Signer;
   if (vars.has('DEPLOYER_PRIVATE_KEY')) {
-    deployer = new Wallet(vars.get('DEPLOYER_PRIVATE_KEY'), ethers.provider);
+    deployer = new Wallet(vars.get('DEPLOYER_PRIVATE_KEY'), new SuggestedTipProvider(hre.network.provider as unknown as providers.ExternalProvider));
   } else if (isLocal) {
     [deployer] = await ethers.getSigners();
   } else {
