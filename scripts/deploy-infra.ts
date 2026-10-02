@@ -22,9 +22,9 @@
  *
  * Secrets (hardhat configuration variables, never pass them inline on the command line):
  *   npx hardhat vars set DEPLOYER_PRIVATE_KEY      prompts for the key, remove it afterwards with `npx hardhat vars delete`
- *   On hardhat/localhost the first local account is used when the variable is not set.
+ *   The dry run always uses a local account; on localhost the first local account is used when the variable is not set.
  *
- * Environment variables:
+ * Settings, read from .env (template: .env.example) or from environment variables:
  *   RPC_URL                    RPC endpoint of the `target` network (required for --network target)
  *   EXPECTED_CHAIN_ID          chain id the RPC must report (required outside hardhat/localhost)
  *   TREX_VERSION               version registered on the IA, e.g. "4.1.3" (default: version from package.json)
@@ -36,8 +36,8 @@
  * Step-by-step guide: docs/DEPLOYMENT.md
  *
  * Usage:
- *   RPC_URL=https://... EXPECTED_CHAIN_ID=1234 npm run deploy:infra
- *   npx hardhat run --network localhost scripts/deploy-infra.ts
+ *   npm run deploy:dry-run     simulated run on the in-process hardhat network, sends nothing
+ *   npm run deploy:infra       real deployment to the chain configured in .env
  */
 import fs from 'fs';
 import path from 'path';
@@ -155,7 +155,8 @@ async function main() {
   }
 
   let deployer: Signer;
-  if (vars.has('DEPLOYER_PRIVATE_KEY')) {
+  // The dry run always uses a funded local account, so it works before the real deployer wallet is funded.
+  if (networkName !== 'hardhat' && vars.has('DEPLOYER_PRIVATE_KEY')) {
     deployer = new Wallet(vars.get('DEPLOYER_PRIVATE_KEY'), new SuggestedTipProvider(hre.network.provider as unknown as providers.ExternalProvider));
   } else if (isLocal) {
     [deployer] = await ethers.getSigners();
@@ -232,8 +233,8 @@ async function main() {
       `  Deployer           ${deployerAddress} (balance ${ethers.utils.formatEther(balance)}, ~${ethers.utils.formatEther(budget)} needed)`,
     );
     console.log(`  TREX_OWNER         ${finalOwner ?? '(not set, deployer stays owner)'}`);
-    if (finalOwner && ownerCode === '0x') {
-      console.log('                     WARNING: no contract at this address on this chain (not a multisig here?)');
+    if (finalOwner) {
+      console.log(`                     ${ownerCode === '0x' ? 'regular wallet (no contract at this address)' : 'contract, e.g. a multisig'}`);
     }
     console.log(`  GATEWAY_DEPLOYERS  ${gatewayDeployers.join(', ') || '(none)'}`);
     console.log(`  Public gateway     ${publicDeployment}`);

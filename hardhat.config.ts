@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import '@xyrusworx/hardhat-solidity-json';
 import '@nomicfoundation/hardhat-toolbox';
 import { HardhatUserConfig } from 'hardhat/config';
@@ -6,8 +7,8 @@ import 'solidity-coverage';
 import '@nomiclabs/hardhat-solhint';
 import '@primitivefi/hardhat-dodoc';
 
-// Deployment target for scripts/deploy-infra.ts, only defined when RPC_URL is set so it never falls back to another chain.
-// The deployer key is read by the script itself (hardhat vars), not here, so other hardhat commands never load it.
+// Deployment target for scripts/deploy-infra.ts (settings in .env, see .env.example), only defined when RPC_URL is set
+// so it never falls back to another chain. The deployer key is read by the script itself (hardhat vars), not here.
 const { RPC_URL } = process.env;
 
 const config: HardhatUserConfig = {
